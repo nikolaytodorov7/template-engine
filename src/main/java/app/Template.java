@@ -9,7 +9,9 @@ import java.lang.reflect.Field;
 import java.util.*;
 
 public class Template {
-    String templatePath;
+    private String templatePath;
+    private final String T_EACH = "t:each";
+    private final String T_TEXT = "t:text";
 
     public Template(String templatePath) {
         this.templatePath = templatePath;
@@ -29,10 +31,10 @@ public class Template {
             if (node.toString().equals(""))
                 continue;
 
-            if (node.hasAttr("t:each"))
+            if (node.hasAttr(T_EACH))
                 processLoop(context, node);
 
-            if (node.hasAttr("t:text"))
+            if (node.hasAttr(T_TEXT))
                 processText(context, node);
 
             if (node.childNodes().size() != 0)
@@ -41,21 +43,18 @@ public class Template {
     }
 
     private void processLoop(TemplateContext context, Node node) throws IllegalAccessException {
-        String attr = node.attr("t:each");
+        String attr = node.attr(T_EACH);
         String[] loopSplit = attr.split(": ");
         String loopAttribute = trimAttribute(loopSplit[1]);
         Element element = (Element) node.parent();
         node.remove();
-        node.removeAttr("t:each");
+        node.removeAttr(T_EACH);
 
         List<Node> nodes = node.childNodes();
         Set<String> textAttributes = getTextAttributes(nodes);
 
         Object template = context.get(loopAttribute);
         List<?> list = convertObjectToList(template);
-        if (list == null)
-            return;
-
         addAttributes(node, element, textAttributes, list);
     }
 
@@ -65,7 +64,7 @@ public class Template {
         else if (obj instanceof Collection)
             return new ArrayList<>((Collection<?>) obj);
 
-        return null;
+        throw new IllegalStateException("Must be list or array!");
     }
 
     private void addAttributes(Node node, Element element, Set<String> textAttributes, List<?> list) throws IllegalAccessException {
@@ -102,13 +101,13 @@ public class Template {
     private Set<String> getTextAttributes(List<Node> nodes) {
         Set<String> textAttributes = new HashSet<>();
         for (Node n : nodes) {
-            String attr1 = n.attr("t:text");
+            String attr1 = n.attr(T_TEXT);
             if (!attr1.equals("")) {
                 attr1 = trimAttribute(attr1);
                 textAttributes.add(attr1.split("\\.")[1]);
             }
 
-            n.removeAttr("t:text");
+            n.removeAttr(T_TEXT);
         }
 
         return textAttributes;
@@ -127,8 +126,8 @@ public class Template {
     }
 
     private void processText(TemplateContext context, Node node) {
-        String textAttribute = node.attr("t:text");
-        node.removeAttr("t:text");
+        String textAttribute = node.attr(T_TEXT);
+        node.removeAttr(T_TEXT);
         textAttribute = trimAttribute(textAttribute);
         Element e = (Element) node;
         String text = context.get(textAttribute).toString();
