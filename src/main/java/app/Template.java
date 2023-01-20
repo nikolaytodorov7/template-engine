@@ -20,20 +20,11 @@ public class Template {
         Document doc = Jsoup.parse(input);
         Element body = doc.body();
         List<Node> nodes = body.childNodes();
-        doNodes(nodes, context);
+        processNodes(nodes, context);
         return doc.toString();
     }
 
-    public static List<?> convertObjectToList(Object obj) {
-        if (obj.getClass().isArray())
-            return Arrays.asList((Object[]) obj);
-        else if (obj instanceof Collection)
-            return new ArrayList<>((Collection<?>) obj);
-
-        return null;
-    }
-
-    private static void doNodes(List<Node> nodes, TemplateContext context) throws IllegalAccessException {
+    private void processNodes(List<Node> nodes, TemplateContext context) throws IllegalAccessException {
         for (Node node : nodes) {
             if (node.toString().equals(""))
                 continue;
@@ -45,11 +36,11 @@ public class Template {
                 processText(context, node);
 
             if (node.childNodes().size() != 0)
-                doNodes(node.childNodes(), context);
+                processNodes(node.childNodes(), context);
         }
     }
 
-    private static void processLoop(TemplateContext context, Node node) throws IllegalAccessException {
+    private void processLoop(TemplateContext context, Node node) throws IllegalAccessException {
         String attr = node.attr("t:each");
         String[] loopSplit = attr.split(": ");
         String loopAttribute = trimAttribute(loopSplit[1]);
@@ -58,10 +49,9 @@ public class Template {
         node.removeAttr("t:each");
 
         List<Node> nodes = node.childNodes();
-        Set<String> textAttributes = new HashSet<>();
-        fillTextAttributes(nodes, textAttributes);
+        Set<String> textAttributes = getTextAttributes(nodes);
 
-        Object template = context.getTemplate(loopAttribute);
+        Object template = context.get(loopAttribute);
         List<?> list = convertObjectToList(template);
         if (list == null)
             return;
@@ -69,14 +59,19 @@ public class Template {
         addAttributes(node, element, textAttributes, list);
     }
 
+    private static List<?> convertObjectToList(Object obj) {
+        if (obj.getClass().isArray())
+            return Arrays.asList((Object[]) obj);
+        else if (obj instanceof Collection)
+            return new ArrayList<>((Collection<?>) obj);
+
+        return null;
+    }
+
     private static void addAttributes(Node node, Element element, Set<String> textAttributes, List<?> list) throws IllegalAccessException {
         for (Object obj : list) {
-            int count = 0;
             Field[] fields = obj.getClass().getDeclaredFields();
             for (Field field : fields) {
-                if (count == textAttributes.size())
-                    break;
-
                 field.setAccessible(true);
                 String fieldName = field.getName();
                 if (!textAttributes.contains(fieldName))
@@ -84,7 +79,6 @@ public class Template {
 
                 String fieldVal = field.get(obj).toString();
                 addTextToNode(node, fieldVal);
-                count++;
             }
 
             element.append(String.valueOf(node));
@@ -105,7 +99,8 @@ public class Template {
         }
     }
 
-    private static void fillTextAttributes(List<Node> nodes, Set<String> textAttributes) {
+    private Set<String> getTextAttributes(List<Node> nodes) {
+        Set<String> textAttributes = new HashSet<>();
         for (Node n : nodes) {
             String attr1 = n.attr("t:text");
             if (!attr1.equals("")) {
@@ -115,6 +110,8 @@ public class Template {
 
             n.removeAttr("t:text");
         }
+
+        return textAttributes;
     }
 
     private static void clearNodesText(Node node) {
@@ -134,7 +131,8 @@ public class Template {
         node.removeAttr("t:text");
         textAttribute = trimAttribute(textAttribute);
         Element e = (Element) node;
-        e.appendText(context.getTemplate(textAttribute).toString());
+        String text = context.get(textAttribute).toString();
+        e.appendText(text);
     }
 
     private static String trimAttribute(String attribute) {

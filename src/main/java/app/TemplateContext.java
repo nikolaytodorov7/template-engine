@@ -5,15 +5,15 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class TemplateContext {
-    private Map<String, Object> templates = new HashMap<>();
+    private Map<String, Object> properties = new HashMap<>();
 
-    void put(String key, Object value) {
-        templates.put(key, value);
+    public void put(String key, Object value) {
+        properties.put(key, value);
     }
 
-    public Object getTemplate(String template) {
-        String[] templateSplit = template.split("\\.");
-        Object templateObj = templates.get(templateSplit[0]);
+    public Object get(String key) { //todo recursive go inside instead of one step
+        String[] templateSplit = key.split("\\.");
+        Object templateObj = properties.get(templateSplit[0]);
         if (templateSplit.length == 1)
             return templateObj;
 
@@ -31,6 +31,6 @@ public class TemplateContext {
             }
         }
 
-        throw new IllegalStateException(template + " can't be found!");
+        throw new IllegalStateException(key + " can't be found!");
     }
 }
