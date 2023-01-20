@@ -59,7 +59,7 @@ public class Template {
         addAttributes(node, element, textAttributes, list);
     }
 
-    private static List<?> convertObjectToList(Object obj) {
+    private List<?> convertObjectToList(Object obj) {
         if (obj.getClass().isArray())
             return Arrays.asList((Object[]) obj);
         else if (obj instanceof Collection)
@@ -68,7 +68,7 @@ public class Template {
         return null;
     }
 
-    private static void addAttributes(Node node, Element element, Set<String> textAttributes, List<?> list) throws IllegalAccessException {
+    private void addAttributes(Node node, Element element, Set<String> textAttributes, List<?> list) throws IllegalAccessException {
         for (Object obj : list) {
             Field[] fields = obj.getClass().getDeclaredFields();
             for (Field field : fields) {
@@ -86,7 +86,7 @@ public class Template {
         }
     }
 
-    private static void addTextToNode(Node node, String fieldVal) {
+    private void addTextToNode(Node node, String fieldVal) {
         for (Node n : node.childNodes()) {
             if (!(n instanceof Element))
                 continue;
@@ -114,7 +114,7 @@ public class Template {
         return textAttributes;
     }
 
-    private static void clearNodesText(Node node) {
+    private void clearNodesText(Node node) {
         for (Node n : node.childNodes()) {
             if (!(n instanceof Element e))
                 continue;
@@ -126,7 +126,7 @@ public class Template {
         }
     }
 
-    private static void processText(TemplateContext context, Node node) {
+    private void processText(TemplateContext context, Node node) {
         String textAttribute = node.attr("t:text");
         node.removeAttr("t:text");
         textAttribute = trimAttribute(textAttribute);
@@ -135,7 +135,7 @@ public class Template {
         e.appendText(text);
     }
 
-    private static String trimAttribute(String attribute) {
+    private String trimAttribute(String attribute) {
         return attribute.substring(2, attribute.length() - 1);
     }
 }
