@@ -1,6 +1,7 @@
 <html>
 <body>
   <span t:text="#{welcome.message}" />
+  <span t:if="${welcome.secondMessage == hello world2}">t:text="#{welcome.secondMessage}"</span>
 
   <table>
     <tr t:each="student: ${students}">

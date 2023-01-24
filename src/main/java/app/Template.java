@@ -9,9 +9,11 @@ import java.lang.reflect.Field;
 import java.util.*;
 
 public class Template {
-    private String templatePath;
     private final String T_EACH = "t:each";
     private final String T_TEXT = "t:text";
+    private final String T_IF = "t:if";
+
+    private String templatePath;
 
     public Template(String templatePath) {
         this.templatePath = templatePath;
@@ -31,6 +33,9 @@ public class Template {
             if (node.toString().equals(""))
                 continue;
 
+            if (node.hasAttr(T_IF))
+                processIf(context, node);
+
             if (node.hasAttr(T_EACH))
                 processLoop(context, node);
 
@@ -40,6 +45,21 @@ public class Template {
             if (node.childNodes().size() != 0)
                 processNodes(node.childNodes(), context);
         }
+    }
+
+    private void processIf(TemplateContext context, Node node) {
+        String ifAttribute = node.attr(T_IF);
+        node.removeAttr(T_IF);
+        if (!ifAttribute.equals(""))
+            ifAttribute = trimAttribute(ifAttribute);
+
+        String[] condition = ifAttribute.split(" == ");
+        if (condition.length != 2)
+            throw new IllegalStateException("Corrupt condition!");
+
+        Element e = (Element) node;
+        if (e.text().contains(T_TEXT))
+            processIfText(context, e.text(), node);
     }
 
     private void processLoop(TemplateContext context, Node node) throws IllegalAccessException {
@@ -132,6 +152,17 @@ public class Template {
         Element e = (Element) node;
         String text = context.get(textAttribute).toString();
         e.appendText(text);
+    }
+
+    private void processIfText(TemplateContext context, String textAttribute, Node node) {
+        if (!textAttribute.startsWith(T_TEXT))
+            throw new IllegalStateException("Corrupt T:text provided!");
+
+        textAttribute = textAttribute.substring(10, textAttribute.length() - 2);
+        Element e = (Element) node;
+        String text = context.get(textAttribute).toString();
+        TextNode textNode = e.textNodes().get(0);
+        textNode.text(text);
     }
 
     private String trimAttribute(String attribute) {

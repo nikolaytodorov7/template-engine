@@ -5,7 +5,7 @@ import java.io.IOException;
 public class Main {
     public static void main(String[] args) throws IOException, IllegalAccessException {
         TemplateContext ctx = new TemplateContext();
-        WelcomeMessage welcome = new WelcomeMessage("hello world");
+        WelcomeMessage welcome = new WelcomeMessage("hello world", "hello world2");
         ctx.put("welcome", welcome);
 
         Student[] students = {
