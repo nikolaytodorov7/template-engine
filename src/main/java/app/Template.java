@@ -5,77 +5,145 @@ import org.jsoup.nodes.*;
 
 import java.io.File;
 import java.io.IOException;
-import java.lang.reflect.Field;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class Template {
-    private final String T_EACH = "t:each";
-    private final String T_TEXT = "t:text";
-    private final String T_IF = "t:if";
+    private final String FOREACH_ATTRIBUTE = "t:each";
+    private final String TEXT_ATTRIBUTE = "t:text";
+    private final String IF_ATTRIBUTE = "t:if";
+    private final Pattern TEXT_SPLIT_PATTERN = Pattern.compile("[#$][{]([a-zA-Z0-9.= ]+)[}]");
+    private final Pattern CONDITION_SPLIT_PATTERN = Pattern.compile("t:text=\"[#$][{]([a-zA-Z0-9.= ]+)[}]\"");
+    private final StringBuilder parsedDoc = new StringBuilder();
 
-    private String templatePath;
+    private Document doc;
+    private TemplateContext context;
+    private int tabSpaces = 0;
 
     public Template(String templatePath) {
-        this.templatePath = templatePath;
-    }
-
-    public String render(TemplateContext context) throws IOException, IllegalAccessException {
         File input = new File(templatePath);
-        Document doc = Jsoup.parse(input);
-        Element body = doc.body();
-        List<Node> nodes = body.childNodes();
-        processNodes(nodes, context);
-        return doc.toString();
-    }
-
-    private void processNodes(List<Node> nodes, TemplateContext context) throws IllegalAccessException {
-        for (Node node : nodes) {
-            if (node.toString().equals(""))
-                continue;
-
-            if (node.hasAttr(T_IF))
-                processIf(context, node);
-
-            if (node.hasAttr(T_EACH))
-                processLoop(context, node);
-
-            if (node.hasAttr(T_TEXT))
-                processText(context, node);
-
-            if (node.childNodes().size() != 0)
-                processNodes(node.childNodes(), context);
+        try {
+            doc = Jsoup.parse(input);
+        } catch (IOException e) {
+            throw new IllegalArgumentException("Invalid file!");
         }
     }
 
-    private void processIf(TemplateContext context, Node node) {
-        String ifAttribute = node.attr(T_IF);
-        node.removeAttr(T_IF);
-        if (!ifAttribute.equals(""))
-            ifAttribute = trimAttribute(ifAttribute);
-
-        String[] condition = ifAttribute.split(" == ");
-        if (condition.length != 2)
-            throw new IllegalStateException("Corrupt condition!");
-
-        Element e = (Element) node;
-        if (e.text().contains(T_TEXT))
-            processIfText(context, e.text(), node);
+    public String render(TemplateContext context) {
+        this.context = context;
+        Element root = doc.root();
+        render(root);
+        String result = parsedDoc.toString();
+        parsedDoc.setLength(0);
+        return result;
     }
 
-    private void processLoop(TemplateContext context, Node node) throws IllegalAccessException {
-        String attr = node.attr(T_EACH);
-        String[] loopSplit = attr.split(": ");
-        String loopAttribute = trimAttribute(loopSplit[1]);
-        Element element = (Element) node.parent();
-        node.remove();
-        node.removeAttr(T_EACH);
+    public void render(Element element) {
+        List<Node> nodes = element.childNodes();
+        if (nodes.size() == 0)
+            return;
 
-        List<Node> nodes = node.childNodes();
-        Set<String> textAttributes = getTextAttributes(nodes);
+        parsedDoc.append("\n");
+        for (Node node : nodes) {
+            if (node instanceof Element)
+                processNode(node);
+        }
+    }
 
-        Object template = context.get(loopAttribute);
-        List<?> list = convertObjectToList(template);
-        addAttributes(node, element, textAttributes, list);
+    private void processNode(Node node) {
+        String tagName = ((Element) node).tagName();
+        tabSpaces += 2;
+        parsedDoc.append(" ".repeat(tabSpaces));
+        addTag(tagName, false);
+        processAttributes(node);
+        if (node.childNodes().size() != 0)
+            parsedDoc.append(" ".repeat(tabSpaces));
+
+        addTag(tagName, true);
+        tabSpaces -= 2;
+    }
+
+    private void processAttributes(Node node) {
+        if (node.hasAttr(IF_ATTRIBUTE))
+            processIf(node);
+
+        boolean foreachAttr = node.hasAttr(FOREACH_ATTRIBUTE);
+        if (foreachAttr)
+            processForEach(node);
+
+        if (node.hasAttr(TEXT_ATTRIBUTE))
+            processText(node);
+
+        if (!foreachAttr)
+            render((Element) node);
+    }
+
+    private void processIf(Node node) {
+        String attribute = node.attr(IF_ATTRIBUTE);
+        Matcher textMatcher = TEXT_SPLIT_PATTERN.matcher(attribute);
+        if (!textMatcher.matches())
+            throw new IllegalStateException("Can't render corrupt attribute: " + attribute);
+
+        attribute = textMatcher.group(1);
+        String[] conditionParts = attribute.split(" == ");
+        if (conditionParts.length != 2)
+            throw new IllegalStateException("Can't render corrupt attribute: " + attribute);
+
+        String firstConditionPart = conditionParts[0];
+        firstConditionPart = context.get(firstConditionPart).toString();
+        String secondConditionPart = conditionParts[1];
+        if (!firstConditionPart.equals(secondConditionPart))
+            return;
+
+        Element element = (Element) node;
+        String conditionResult = element.text();
+        if (!conditionResult.startsWith(TEXT_ATTRIBUTE)) {
+            parsedDoc.append(conditionResult);
+            return;
+        }
+
+        Matcher conditionMatcher = CONDITION_SPLIT_PATTERN.matcher(conditionResult);
+        if (!conditionMatcher.matches())
+            throw new IllegalStateException("Can't render corrupt attribute: " + attribute);
+
+        conditionResult = conditionMatcher.group(1);
+        parsedDoc.append(context.get(conditionResult));
+    }
+
+    private void processForEach(Node node) {
+        String attribute = node.attr(FOREACH_ATTRIBUTE);
+        String[] split = attribute.split(": ");
+        Matcher matcher = TEXT_SPLIT_PATTERN.matcher(split[1]);
+        if (!matcher.matches())
+            throw new IllegalStateException("Can't render corrupt attribute: " + attribute);
+
+        attribute = matcher.group(1);
+        Object o = context.get(attribute);
+        List<?> objects = convertObjectToList(o);
+        Element node1 = (Element) node;
+        for (Object obj : objects) {
+            context.put(split[0], obj);
+            List<Node> nodes1 = node1.childNodes();
+            for (Node node2 : nodes1) {
+                if (!(node2 instanceof Element))
+                    continue;
+
+                render((Element) node);
+                break;
+            }
+        }
+    }
+
+    private void processText(Node node) {
+        String attribute = node.attr(TEXT_ATTRIBUTE);
+        Matcher matcher = TEXT_SPLIT_PATTERN.matcher(attribute);
+        if (!matcher.matches())
+            throw new IllegalStateException("Can't render corrupt attribute: " + attribute);
+
+        attribute = matcher.group(1);
+        Object o = context.get(attribute);
+        parsedDoc.append(o);
     }
 
     private List<?> convertObjectToList(Object obj) {
@@ -84,88 +152,11 @@ public class Template {
         else if (obj instanceof Collection)
             return new ArrayList<>((Collection<?>) obj);
 
-        throw new IllegalStateException("Must be list or array!");
+        throw new IllegalStateException("Must be collection or array!");
     }
 
-    private void addAttributes(Node node, Element element, Set<String> textAttributes, List<?> list) throws IllegalAccessException {
-        for (Object obj : list) {
-            Field[] fields = obj.getClass().getDeclaredFields();
-            for (Field field : fields) {
-                field.setAccessible(true);
-                String fieldName = field.getName();
-                if (!textAttributes.contains(fieldName))
-                    continue;
-
-                String fieldVal = field.get(obj).toString();
-                addTextToNode(node, fieldVal);
-            }
-
-            element.append(String.valueOf(node));
-            clearNodesText(node);
-        }
-    }
-
-    private void addTextToNode(Node node, String fieldVal) {
-        for (Node n : node.childNodes()) {
-            if (!(n instanceof Element))
-                continue;
-
-            if (((Element) n).text().equals("")) {
-                Element e = (Element) n;
-                e.appendText(fieldVal);
-                break;
-            }
-        }
-    }
-
-    private Set<String> getTextAttributes(List<Node> nodes) {
-        Set<String> textAttributes = new HashSet<>();
-        for (Node n : nodes) {
-            String attr1 = n.attr(T_TEXT);
-            if (!attr1.equals("")) {
-                attr1 = trimAttribute(attr1);
-                textAttributes.add(attr1.split("\\.")[1]);
-            }
-
-            n.removeAttr(T_TEXT);
-        }
-
-        return textAttributes;
-    }
-
-    private void clearNodesText(Node node) {
-        for (Node n : node.childNodes()) {
-            if (!(n instanceof Element e))
-                continue;
-
-            List<TextNode> textNodes = e.textNodes();
-            for (TextNode textNode : textNodes) {
-                textNode.text("");
-            }
-        }
-    }
-
-    private void processText(TemplateContext context, Node node) {
-        String textAttribute = node.attr(T_TEXT);
-        node.removeAttr(T_TEXT);
-        textAttribute = trimAttribute(textAttribute);
-        Element e = (Element) node;
-        String text = context.get(textAttribute).toString();
-        e.appendText(text);
-    }
-
-    private void processIfText(TemplateContext context, String textAttribute, Node node) {
-        if (!textAttribute.startsWith(T_TEXT))
-            throw new IllegalStateException("Corrupt T:text provided!");
-
-        textAttribute = textAttribute.substring(10, textAttribute.length() - 2);
-        Element e = (Element) node;
-        String text = context.get(textAttribute).toString();
-        TextNode textNode = e.textNodes().get(0);
-        textNode.text(text);
-    }
-
-    private String trimAttribute(String attribute) {
-        return attribute.substring(2, attribute.length() - 1);
+    private void addTag(String tag, boolean closing) {
+        String correctTag = closing ? String.format("</%s>%n", tag) : String.format("<%s>", tag);
+        parsedDoc.append(correctTag);
     }
 }
