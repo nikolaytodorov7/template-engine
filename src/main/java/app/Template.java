@@ -5,6 +5,7 @@ import org.jsoup.nodes.*;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.PrintWriter;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -15,10 +16,7 @@ public class Template {
     private final String IF_ATTRIBUTE = "t:if";
     private final Pattern TEXT_SPLIT_PATTERN = Pattern.compile("[#$][{]([a-zA-Z0-9.= ]+)[}]");
     private final Pattern CONDITION_SPLIT_PATTERN = Pattern.compile("t:text=\"[#$][{]([a-zA-Z0-9.= ]+)[}]\"");
-    private final StringBuilder parsedDoc = new StringBuilder();
-
     private Document doc;
-    private TemplateContext context;
     private int tabSpaces = 0;
 
     public Template(String templatePath) {
@@ -30,76 +28,66 @@ public class Template {
         }
     }
 
-    public String render(TemplateContext context) {
-        this.context = context;
+    public void render(TemplateContext context, PrintWriter out) {
         Element root = doc.root();
-        render(root);
-        String result = parsedDoc.toString();
-        parsedDoc.setLength(0);
-        return result;
+        render(root, context, out);
+        out.flush();
     }
 
-    public void render(Element element) {
+    private void render(Element element, TemplateContext context, PrintWriter out) {
         List<Node> nodes = element.childNodes();
         if (nodes.size() == 0)
             return;
 
-        parsedDoc.append("\n");
+        out.append("\n");
         for (Node node : nodes) {
             if (node instanceof Element)
-                processNode(node);
+                processNode(node, context, out);
         }
     }
 
-    private void processNode(Node node) {
+    private void processNode(Node node, TemplateContext context, PrintWriter out) {
         String tagName = ((Element) node).tagName();
         tabSpaces += 2;
-        parsedDoc.append(" ".repeat(tabSpaces));
-        addTag(tagName, false);
-        processAttributes(node);
+        out.append(" ".repeat(tabSpaces));
+        addTag(tagName, out, false);
+        processAttributes(node, context, out);
         if (node.childNodes().size() != 0)
-            parsedDoc.append(" ".repeat(tabSpaces));
+            out.append(" ".repeat(tabSpaces));
 
-        addTag(tagName, true);
+        addTag(tagName, out, true);
         tabSpaces -= 2;
     }
 
-    private void processAttributes(Node node) {
+    private void processAttributes(Node node, TemplateContext context, PrintWriter out) {
         if (node.hasAttr(IF_ATTRIBUTE))
-            processIf(node);
+            processIf(node, context, out);
 
         boolean foreachAttr = node.hasAttr(FOREACH_ATTRIBUTE);
         if (foreachAttr)
-            processForEach(node);
+            processForEach(node, context, out);
 
         if (node.hasAttr(TEXT_ATTRIBUTE))
-            processText(node);
+            processText(node, context, out);
 
         if (!foreachAttr)
-            render((Element) node);
+            render((Element) node, context, out);
     }
 
-    private void processIf(Node node) {
+    private void processIf(Node node, TemplateContext context, PrintWriter out) {
         String attribute = node.attr(IF_ATTRIBUTE);
         Matcher textMatcher = TEXT_SPLIT_PATTERN.matcher(attribute);
         if (!textMatcher.matches())
             throw new IllegalStateException("Can't render corrupt attribute: " + attribute);
 
         attribute = textMatcher.group(1);
-        String[] conditionParts = attribute.split(" == ");
-        if (conditionParts.length != 2)
-            throw new IllegalStateException("Can't render corrupt attribute: " + attribute);
-
-        String firstConditionPart = conditionParts[0];
-        firstConditionPart = context.get(firstConditionPart).toString();
-        String secondConditionPart = conditionParts[1];
-        if (!firstConditionPart.equals(secondConditionPart))
+        if (attribute == null || attribute.equals("0") || attribute.isBlank())
             return;
 
         Element element = (Element) node;
         String conditionResult = element.text();
         if (!conditionResult.startsWith(TEXT_ATTRIBUTE)) {
-            parsedDoc.append(conditionResult);
+            out.append(conditionResult);
             return;
         }
 
@@ -108,10 +96,10 @@ public class Template {
             throw new IllegalStateException("Can't render corrupt attribute: " + attribute);
 
         conditionResult = conditionMatcher.group(1);
-        parsedDoc.append(context.get(conditionResult));
+        out.append(context.get(conditionResult).toString());
     }
 
-    private void processForEach(Node node) {
+    private void processForEach(Node node, TemplateContext context, PrintWriter out) {
         String attribute = node.attr(FOREACH_ATTRIBUTE);
         String[] split = attribute.split(": ");
         Matcher matcher = TEXT_SPLIT_PATTERN.matcher(split[1]);
@@ -129,13 +117,13 @@ public class Template {
                 if (!(node2 instanceof Element))
                     continue;
 
-                render((Element) node);
+                render((Element) node, context, out);
                 break;
             }
         }
     }
 
-    private void processText(Node node) {
+    private void processText(Node node, TemplateContext context, PrintWriter out) {
         String attribute = node.attr(TEXT_ATTRIBUTE);
         Matcher matcher = TEXT_SPLIT_PATTERN.matcher(attribute);
         if (!matcher.matches())
@@ -143,7 +131,7 @@ public class Template {
 
         attribute = matcher.group(1);
         Object o = context.get(attribute);
-        parsedDoc.append(o);
+        out.append(o.toString());
     }
 
     private List<?> convertObjectToList(Object obj) {
@@ -155,8 +143,8 @@ public class Template {
         throw new IllegalStateException("Must be collection or array!");
     }
 
-    private void addTag(String tag, boolean closing) {
+    private void addTag(String tag, PrintWriter out, boolean closing) {
         String correctTag = closing ? String.format("</%s>%n", tag) : String.format("<%s>", tag);
-        parsedDoc.append(correctTag);
+        out.append(correctTag);
     }
 }
